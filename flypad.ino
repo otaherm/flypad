@@ -21,6 +21,7 @@ TouchButton btn_right = TouchButton(218, 240, 109, 40, "right");
 BleMouse bleMouse("Flightpad", "HERM.CZ", 100);
 
 const bool DEBUG = false;
+const long CLICK_DELAY = 300;
 
 void DisplayInit(void)
 {
@@ -65,6 +66,7 @@ void loop() {
 
 int sum_x = 0;
 int sum_y = 0;
+long last_TE_RELEASE = -1;
 
 unsigned long lastRunMouse = millis();
 void taskMouse() {
@@ -122,7 +124,25 @@ void writeToRectangle(uint32_t color,uint32_t backgroud,word y,const char* text)
   M5.Lcd.print(text);  
 }
 
+bool button_down = false;
+
 void eventDisplay(TouchEvent& e) {
+  long age;
+  if(e.type == TE_RELEASE) {
+    last_TE_RELEASE = millis();
+    bleMouse.release(MOUSE_LEFT);
+    if(DEBUG) Serial.println("LEFT BTN RELEASE");
+  } else if(e.type == TE_TOUCH) {
+    age = millis() - last_TE_RELEASE;
+    if(age < 300) {
+      //button_down = true;
+      bleMouse.press(MOUSE_LEFT);
+      if(DEBUG) Serial.println("LEFT BTN PRESS");
+    } else {
+      //button_down = false;
+    }
+  }
+  
   if(DEBUG) {
     Serial.printf("%-12s finger%d  %-18s (%3d, %3d)", M5.Touch.eventTypeName(e), e.finger, M5.Touch.eventObjName(e),  e.from.x, e.from.y);
     if (e.type != TE_TOUCH && e.type != TE_TAP && e.type != TE_DBLTAP) {
@@ -135,7 +155,7 @@ void eventDisplay(TouchEvent& e) {
     sum_x += e.to.x - e.from.x;
     sum_y += e.to.y - e.from.y;
   } else if (e.type == TE_DBLTAP) {
-    bleMouse.click(MOUSE_LEFT);
+    //bleMouse.click(MOUSE_LEFT);
   }
 }
 
