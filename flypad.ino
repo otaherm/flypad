@@ -1,15 +1,38 @@
+#include <i2cEncoderMiniLib.h>
+#include <i2cNavKey.h>
+#include <LEDRing.h>
+
+#include <NTPClient.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+
 #include <BleConnectionStatus.h>
 #include <BleMouse.h>
 #include <M5Core2.h>
 #include "bmp280.h"
 
+
 //#define P0 1013.25
 //QNH 22.12.2020 LKPR
-#define P0 1016.8
+#define P0 1010.2
+
 
 BMP280 bmp;
 
 #define TOUCH_MAX_X 320
+
+// Replace with your network credentials
+const char* ssid     = "Nokia8";
+const char* password = "1315backspace";
+
+// Define NTP Client to get time
+//WiFiUDP ntpUDP;
+//NTPClient timeClient(ntpUDP);
+
+// Variables to save date and time
+//String formattedDate;
+//String dayStamp;
+//String timeStamp;
 
 //TouchZone topHalf(0,0,320,120);
 //TouchZone bottomHalf(0,120,320,160);
@@ -30,6 +53,7 @@ const bool DEBUG = false;
 const long CLICK_DELAY = 300;
 
 unsigned long vibrate = 0;
+unsigned long doScanWifi = 0;
 
 void DisplayInit(void)
 {
@@ -69,10 +93,139 @@ void setup() {
   //M5.Lcd.setCursor(10, 26);
   //M5.Lcd.printf("Press Left Button to recording!");
 
+
+  //Serial.print("Connecting to ");
+  //Serial.println(ssid);
+  //WiFi.begin(ssid, password);
+
+  WiFi.onEvent(WiFiStationEvent);
+  // Set WiFi to station mode
+  WiFi.mode(WIFI_STA);
+  // Disconnect from an AP if it was previously connected
+  WiFi.disconnect();
+
+  doScanWifi = millis() + 100;
+  
+  /*
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }*/
+/*
+    // Print local IP address and start web server
+  Serial.println("");
+  Serial.println("WiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  */
+
+/*
+// Initialize a NTPClient to get time
+  timeClient.begin();
+  // Set offset time in seconds to adjust for your timezone, for example:
+  // GMT +1 = 3600
+  // GMT +8 = 28800
+  // GMT -1 = -3600
+  // GMT 0 = 0
+  timeClient.setTimeOffset(3600);
+  */
+
   Serial.println("Starting BLE mouse work!");
   bleMouse.begin();
 
 
+}
+
+
+
+void WiFiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+    Serial.print("Wifi event:");
+    Serial.print(event);
+    //Serial.print(", info:");
+    //Serial.println(info);
+    Serial.println();
+    
+     switch (event) {
+        case SYSTEM_EVENT_WIFI_READY: 
+            Serial.println("WiFi interface ready");
+            break;
+        case SYSTEM_EVENT_SCAN_DONE:
+            Serial.println("Completed scan for access points");
+            break;
+        case SYSTEM_EVENT_STA_START:
+            Serial.println("WiFi client started");
+            break;
+        case SYSTEM_EVENT_STA_STOP:
+            Serial.println("WiFi clients stopped");
+            break;
+        case SYSTEM_EVENT_STA_CONNECTED:
+            Serial.println("Connected to access point");
+            break;
+        case SYSTEM_EVENT_STA_DISCONNECTED:
+            Serial.println("Disconnected from WiFi access point");
+            break;
+        case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
+            Serial.println("Authentication mode of access point has changed");
+            break;
+        case SYSTEM_EVENT_STA_GOT_IP:
+            Serial.print("Obtained IP address: ");
+            Serial.println(WiFi.localIP());
+            break;
+        case SYSTEM_EVENT_STA_LOST_IP:
+            Serial.println("Lost IP address and IP address is reset to 0");
+            break;
+        case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
+            Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode");
+            break;
+        case SYSTEM_EVENT_STA_WPS_ER_FAILED:
+            Serial.println("WiFi Protected Setup (WPS): failed in enrollee mode");
+            break;
+        case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
+            Serial.println("WiFi Protected Setup (WPS): timeout in enrollee mode");
+            break;
+        case SYSTEM_EVENT_STA_WPS_ER_PIN:
+            Serial.println("WiFi Protected Setup (WPS): pin code in enrollee mode");
+            break;
+        case SYSTEM_EVENT_AP_START:
+            Serial.println("WiFi access point started");
+            break;
+        case SYSTEM_EVENT_AP_STOP:
+            Serial.println("WiFi access point  stopped");
+            break;
+        case SYSTEM_EVENT_AP_STACONNECTED:
+            Serial.println("Client connected");
+            break;
+        case SYSTEM_EVENT_AP_STADISCONNECTED:
+            Serial.println("Client disconnected");
+            break;
+        case SYSTEM_EVENT_AP_STAIPASSIGNED:
+            Serial.println("Assigned IP address to client");
+            break;
+        case SYSTEM_EVENT_AP_PROBEREQRECVED:
+            Serial.println("Received probe request");
+            break;
+        case SYSTEM_EVENT_GOT_IP6:
+            Serial.println("IPv6 is preferred");
+            break;
+        case SYSTEM_EVENT_ETH_START:
+            Serial.println("Ethernet started");
+            break;
+        case SYSTEM_EVENT_ETH_STOP:
+            Serial.println("Ethernet stopped");
+            break;
+        case SYSTEM_EVENT_ETH_CONNECTED:
+            Serial.println("Ethernet connected");
+            break;
+        case SYSTEM_EVENT_ETH_DISCONNECTED:
+            Serial.println("Ethernet disconnected");
+            break;
+        case SYSTEM_EVENT_ETH_GOT_IP:
+            Serial.println("Obtained IP address");
+            break;
+        default: 
+          Serial.println("Event not found...");
+          break;
+    }
 }
 
 void loop() {
@@ -83,9 +236,98 @@ void loop() {
   taskVibrate();
   taskBaro1();
   taskBaro2();
+  taskWifiScan();
+  //taskNtp();
 
   delay(1);
 }
+
+void taskWifiScan() {
+  String ssid;
+  int32_t rssi;
+  uint8_t encryptionType;
+  uint8_t* bssid;
+  int32_t channel;
+  bool hidden;
+  int scanResult;
+  
+  if(doScanWifi==0) return;
+
+  if(doScanWifi>millis()) return;
+
+  int8_t sc;
+
+  sc = WiFi.scanComplete();
+  Serial.printf(PSTR("Starting WiFi scan...%d/n"),sc);  
+  
+  scanResult = WiFi.scanNetworks(/*async=*/true, /*hidden=*/true);
+  Serial.printf(PSTR("Scan started, result:%d\n"), scanResult);
+
+  
+  while(true) {
+    sc = WiFi.scanComplete();
+    if(sc==-1) {
+      Serial.print(F("."));
+      delay(500);  
+    } else if(sc < 0) {
+      Serial.printf(PSTR("Scan error:%d/n"),sc);
+      return;
+    } else {
+      Serial.printf(PSTR("Scan result:%d/n"),sc);
+      break;
+    }
+  }  
+  scanResult = sc;
+
+  if (scanResult == 0) {
+    Serial.println(F("No networks found"));
+  } else if (scanResult > 0) {
+    Serial.printf(PSTR("%d networks found:\n"), scanResult);
+
+    // Print unsorted scan results
+    for (int8_t i = 0; i < scanResult; i++) {
+      //WiFi.getNetworkInfo(i, ssid, encryptionType, rssi, bssid, channel, hidden);
+      WiFi.getNetworkInfo(i, ssid, encryptionType, rssi, bssid, channel);
+
+      Serial.printf(PSTR("  %02d: [CH %02d] [%02X:%02X:%02X:%02X:%02X:%02X] %ddBm %c %c %s\n"),
+                    i,
+                    channel,
+                    bssid[0], bssid[1], bssid[2],
+                    bssid[3], bssid[4], bssid[5],
+                    rssi,
+                    //(encryptionType == ENC_TYPE_NONE) ? ' ' : '*',
+                    '?',
+                    hidden ? 'H' : 'V',
+                    ssid.c_str());
+      delay(0);
+    }
+  } else {
+    Serial.printf(PSTR("WiFi scan error %d"), scanResult);
+  }
+
+  
+
+  doScanWifi = 0;
+}
+/*
+unsigned long lastRunNtp = 0;
+void taskNtp() {
+  unsigned long age = millis() - lastRunNtp;
+  if(age<1000) return;
+  lastRunNtp = millis();
+
+  while(!timeClient.update()) {
+    timeClient.forceUpdate();
+  }
+  // The formattedDate comes with the following format:
+  // 2018-05-28T16:00:13Z
+  // We need to extract date and time
+  formattedDate = timeClient.getFormattedTime();
+  Serial.println("Time: "+formattedDate); 
+  
+    writeToRectangle(LIGHTGREY, BLACK, 200, formattedDate.c_str());
+
+}*/
 
 bool isVibrating = false;
 
@@ -102,7 +344,8 @@ unsigned long last_baro = millis();
 double baro_t = -1;
 double baro_p = -1;
 double baro_a = -1;
-double baro_sealevel = -1;
+double baro_sealevel1 = -1;
+double baro_sealevel2 = -1;
 unsigned long run_baro2 = 0;
 void taskBaro1() {
   unsigned long age = millis() - last_baro;
@@ -118,7 +361,8 @@ void taskBaro1() {
     baro_a = -1;
     baro_t = -1;
     baro_p = -1;
-    baro_sealevel = -1;
+    baro_sealevel1 = -1;
+    baro_sealevel2 = -1;
     Serial.println("BMP Error 1.");
     return;
   }
@@ -139,7 +383,8 @@ void taskBaro2() {
   }
 
   baro_a = bmp.altitude(baro_p, P0);
-  baro_sealevel = bmp.sealevel(baro_p, 350);
+  baro_sealevel1 = bmp.sealevel(baro_p, 350);
+  baro_sealevel2 = bmp.sealevel(baro_p, 202);
   //Serial.print("T = \t");Serial.print(baro_t,2); Serial.print(" degC\t");
   //Serial.print("P = \t");Serial.print(baro_p,2); Serial.print(" mBar\t");
   //Serial.print("A = \t");Serial.print(baro_a,2); Serial.println(" m");
@@ -167,9 +412,10 @@ void taskMouse() {
 
 }
 
-const word BOX_LEFT = 254 - 90;
-const word BOX_WIDTH = 64 + 90;
-const word BOX_HEIGHT = 20;
+const word BOX_LEFT = 254 - 110;
+const word BOX_WIDTH = 64 + 110;
+const word SBOX_HEIGHT = 20;
+const word LBOX_HEIGHT = 34;
 unsigned long lastDispSlow = millis();
 void taskDispSlow() {
   unsigned long now = millis();
@@ -210,8 +456,26 @@ void taskDispSlow() {
     sprintf(txt, " %07.2f m", baro_a);
     writeToRectangle(LIGHTGREY, BLACK, 120, txt);
 
-    sprintf(txt, "%07.2f mBar", baro_sealevel);
+    sprintf(txt, "%07.2f mBar", baro_sealevel1);
     writeToRectangle(LIGHTGREY, BLACK, 140, txt);
+    sprintf(txt, "%07.2f mBar", baro_sealevel2);
+    writeToRectangle(LIGHTGREY, BLACK, 160, txt);
+
+  /*
+    if(WiFi.status() != WL_CONNECTED) {
+     sprintf(txt, "NOT CONN:");
+     writeToRectangle(RED, BLACK, 180, txt);
+    } else {
+      //writeToRectangle(GREEN, BLACK, 180, String(WiFi.localIP()).c_str());
+      writeToRectangle(GREEN, BLACK, 180, WiFi.localIP().toString().c_str());
+    }
+    */
+
+    sprintf(txt, "%04.0f ft", baro_a*3.2808399);
+    writeToRectangleBig(WHITE, BLACK, 180, txt);
+    
+    
+    
   } else {
     writeToRectangle(RED, BLACK, 80, TXT_MIS);
     writeToRectangle(RED, BLACK, 100, "baro missing");
@@ -222,8 +486,18 @@ void taskDispSlow() {
 }
 
 void writeToRectangle(uint32_t color, uint32_t backgroud, word y, const char* text) {
-  M5.Lcd.fillRect(BOX_LEFT, y, BOX_WIDTH, BOX_HEIGHT, backgroud);
-  M5.Lcd.drawRect(BOX_LEFT, y, BOX_WIDTH, BOX_HEIGHT, ORANGE);
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.fillRect(BOX_LEFT, y, BOX_WIDTH, SBOX_HEIGHT, backgroud);
+  M5.Lcd.drawRect(BOX_LEFT, y, BOX_WIDTH, SBOX_HEIGHT, ORANGE);
+  M5.Lcd.setTextColor(color);
+  M5.Lcd.setCursor(BOX_LEFT + 4, y + 3);
+  M5.Lcd.print(text);
+}
+
+void writeToRectangleBig(uint32_t color, uint32_t backgroud, word y, const char* text) {
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.fillRect(BOX_LEFT, y, BOX_WIDTH, LBOX_HEIGHT, backgroud);
+  M5.Lcd.drawRect(BOX_LEFT, y, BOX_WIDTH, LBOX_HEIGHT, ORANGE);
   M5.Lcd.setTextColor(color);
   M5.Lcd.setCursor(BOX_LEFT + 4, y + 3);
   M5.Lcd.print(text);
