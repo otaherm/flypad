@@ -1,6 +1,5 @@
 #include <i2cEncoderMiniLib.h>
-#include <i2cNavKey.h>
-#include <LEDRing.h>
+//#include <i2cNavKey.h>
 
 #include <NTPClient.h>
 #include <WiFi.h>
@@ -11,12 +10,18 @@
 #include <M5Core2.h>
 #include "bmp280.h"
 
+#include "mymenu.h"
+#include "mymenuelement.h"
+#include "flypad.h"
+
 
 //#define P0 1013.25
 //QNH 22.12.2020 LKPR
 #define P0 1010.2
+unsigned int value_QNH = 0;
 
-
+const int EncoderIntPin = G27; /* Definition of the interrupt pin. You can change according to your board */
+i2cEncoderMiniLib Encoder(0x20);
 BMP280 bmp;
 
 #define TOUCH_MAX_X 320
@@ -85,6 +90,8 @@ void setup() {
 
   M5.Axp.SetLed(0);
 
+  encoder_setup();
+
   DisplayInit();
   M5.Lcd.setTextColor(WHITE);
   M5.Lcd.setCursor(3, 3);
@@ -132,6 +139,8 @@ void setup() {
 
   Serial.println("Starting BLE mouse work!");
   bleMouse.begin();
+
+  menu_setup();
 
 
 }
@@ -238,6 +247,8 @@ void loop() {
   taskBaro2();
   taskWifiScan();
   //taskNtp();
+  task_encoder();
+  task_menu();
 
   delay(1);
 }
@@ -382,7 +393,7 @@ void taskBaro2() {
     return;
   }
 
-  baro_a = bmp.altitude(baro_p, P0);
+  baro_a = bmp.altitude(baro_p, value_QNH);
   baro_sealevel1 = bmp.sealevel(baro_p, 350);
   baro_sealevel2 = bmp.sealevel(baro_p, 202);
   //Serial.print("T = \t");Serial.print(baro_t,2); Serial.print(" degC\t");
@@ -414,6 +425,7 @@ void taskMouse() {
 
 const word BOX_LEFT = 254 - 110;
 const word BOX_WIDTH = 64 + 110;
+const word BOX_S_WIDTH = 110+30;
 const word SBOX_HEIGHT = 20;
 const word LBOX_HEIGHT = 34;
 unsigned long lastDispSlow = millis();
@@ -503,6 +515,15 @@ void writeToRectangleBig(uint32_t color, uint32_t backgroud, word y, const char*
   M5.Lcd.print(text);
 }
 
+void writeToRectangleLeft(uint32_t color, uint32_t backgroud, word y, const char* text) {
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.fillRect(0, y, BOX_S_WIDTH, SBOX_HEIGHT, backgroud);
+  M5.Lcd.drawRect(0, y, BOX_S_WIDTH, SBOX_HEIGHT, ORANGE);
+  M5.Lcd.setTextColor(color);
+  M5.Lcd.setCursor(0 + 4, y + 3);
+  M5.Lcd.print(text);
+}
+
 bool button_down = false;
 
 void eventDisplay(TouchEvent& e) {
@@ -582,4 +603,160 @@ void buttonPressed(TouchEvent& e) {
   } else {
     if (DEBUG) Serial.println("BUTTON NOT RECOGNIZED!");
   }
+}
+
+
+//I2C Encoder Mini part:
+//unsigned long last_encoder_run = 0;
+void task_encoder() {
+  if (digitalRead(EncoderIntPin) != LOW) return;
+  
+  //unsigned long age = millis() - last_encoder_run;
+  //if(age<10) return;
+
+  //last_encoder_run = millis();
+  Encoder.updateStatus(); 
+}
+
+void encoder_setup() {
+  pinMode(EncoderIntPin, INPUT);
+  Encoder.reset();
+  Encoder.begin(i2cEncoderMiniLib::WRAP_DISABLE
+                | i2cEncoderMiniLib::DIRE_LEFT | i2cEncoderMiniLib::IPUP_ENABLE
+                | i2cEncoderMiniLib::RMOD_X1 );
+
+  Encoder.writeCounter((int32_t) 0); /* Reset the counter value */
+  Encoder.writeMax((int32_t) 10); /* Set the maximum threshold*/
+  Encoder.writeMin((int32_t) - 10); /* Set the minimum threshold */
+  Encoder.writeStep((int32_t) 1); /* Set the step to 1*/
+  Encoder.writeDoublePushPeriod(50); /*Set a period for the double push of 500ms */
+
+  // Definition of the events
+  Encoder.onIncrement = menu_go_prev;
+  Encoder.onDecrement = menu_go_next;
+  
+  Encoder.onChange = encoder_change;
+  Encoder.onMax = encoder_max;
+  Encoder.onMin = encoder_min;
+  Encoder.onButtonPush = encoder_push;
+  Encoder.onButtonRelease = encoder_released;
+  Encoder.onButtonDoublePush = encoder_double_push;
+  Encoder.onButtonLongPush = menu_go_start;
+
+  /* Enable the I2C Encoder V2 interrupts according to the previus attached callback */
+  Encoder.autoconfigInterrupt();
+}
+
+void encoder_show(bool button) {
+  char txt[40];
+  
+  int8_t val = Encoder.readCounterByte(); 
+  uint8_t st = Encoder.readStatus();
+  sprintf(txt, "%+03d st:%02X", val,st);
+  writeToRectangle(LIGHTGREY, button?BLUE:BLACK, 214, txt);
+}
+
+//Callback when the CVAL is incremented
+void encoder_change(i2cEncoderMiniLib* obj) {  
+  encoder_show(false);
+}
+
+
+//Callback when CVAL reach MAX
+void encoder_max(i2cEncoderMiniLib* obj) {
+  Serial.print("Maximum threshold: ");
+  Serial.println(Encoder.readCounterByte());
+}
+
+//Callback when CVAL reach MIN
+void encoder_min(i2cEncoderMiniLib* obj) {
+  Serial.print("Minimum threshold: ");
+  Serial.println(Encoder.readCounterByte());
+}
+
+//Callback when the encoder is pushed
+void encoder_push(i2cEncoderMiniLib* obj) {
+  Serial.println("Encoder is pushed!");
+  encoder_show(true);
+  menu_actual->go_down();  
+}
+
+//Callback when the encoder is released
+void encoder_released(i2cEncoderMiniLib* obj) {
+  Serial.println("Encoder is released");
+}
+
+//Callback when the encoder is double pushed
+void encoder_double_push(i2cEncoderMiniLib* obj) {
+  Serial.println("Encoder is double pushed!");
+}
+
+//Callback when the encoder is long pushed
+void encoder_long_push(i2cEncoderMiniLib* obj) {
+  Serial.println("Encoder is long pushed!");
+}
+
+
+//Menu definition
+
+//Gesture swipeDown(topHalf, bottomHalf, "Swipe Down");
+
+extern MYMENU_SELECT mm_info;
+extern MYMENU_SELECT mm_set_alt;
+extern MYMENU_SELECT mm_set_qnh;
+extern MYMENU_NINP mm_sqnh_1;
+extern MYMENU_NINP mm_sqnh_2;
+extern MYMENU_NINP mm_sqnh_3;
+extern MYMENU_NINP mm_sqnh_4;
+extern MYMENU_CHECK  mm_sqnh_done;
+
+extern MYMENU_MSG  mm_empty;
+
+
+
+MYMENU_SELECT mm_info("main info",NULL, &mm_set_alt,&mm_empty);
+MYMENU_SELECT mm_set_alt("set altitude",&mm_info,&mm_set_qnh,&mm_empty);
+MYMENU_SELECT mm_set_qnh("set QNH",&mm_set_alt,NULL,&mm_sqnh_1);
+
+MYMENU_NINP mm_sqnh_1(1,1000,&mm_sqnh_2,mm_sqnh_show);
+MYMENU_NINP mm_sqnh_2(0,100,&mm_sqnh_3,mm_sqnh_show);
+MYMENU_NINP mm_sqnh_3(1,10,&mm_sqnh_4,mm_sqnh_show);
+MYMENU_NINP mm_sqnh_4(3,1,&mm_info,mm_sqnh_show);
+MYMENU_CHECK  mm_sqnh_done(2000,&mm_info);
+
+MYMENU_MSG  mm_empty("EMPTY SELECTION",500,&mm_info);
+
+MYMENUELEMENT* menu_actual = &mm_info;
+
+void mm_sqnh_show() {
+  char txt[40];
+  mm_sqnh_calc();
+  sprintf(txt, "QNH:%04dhPa", value_QNH);
+  bool range_ok = (value_QNH>960) && (value_QNH<1040);
+  writeToRectangleLeft(range_ok?GREEN:RED, BLACK, 40, txt);   
+}
+void mm_sqnh_calc() {
+  value_QNH = mm_sqnh_1.getVX() + mm_sqnh_2.getVX() + mm_sqnh_3.getVX() + mm_sqnh_4.getVX() ;
+}
+
+void menu_setup() {
+  mm_sqnh_calc();
+  menu_actual->show();
+}
+
+void task_menu() {
+
+}
+
+void menu_go_prev(i2cEncoderMiniLib* obj) {
+  menu_actual->go_prev();
+}
+
+void menu_go_next(i2cEncoderMiniLib* obj) {
+  menu_actual->go_next();
+}
+
+void menu_go_start(i2cEncoderMiniLib* obj) {
+  menu_actual = &mm_info;
+  menu_actual->show();
 }
