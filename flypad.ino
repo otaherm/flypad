@@ -19,6 +19,7 @@
 //QNH 22.12.2020 LKPR
 #define P0 1010.2
 unsigned int value_QNH = 0;
+float requested_altitude = NAN;
 
 const int EncoderIntPin = G27; /* Definition of the interrupt pin. You can change according to your board */
 i2cEncoderMiniLib Encoder(0x20);
@@ -425,13 +426,16 @@ void taskMouse() {
 
 const word BOX_LEFT = 254 - 110;
 const word BOX_WIDTH = 64 + 110;
-const word BOX_S_WIDTH = 110+30;
+const word BOX_S_WIDTH = 110+30+36-6;
 const word SBOX_HEIGHT = 20;
 const word LBOX_HEIGHT = 34;
+const word GBOX_HEIGHT = 60;
+
 unsigned long lastDispSlow = millis();
 void taskDispSlow() {
   unsigned long now = millis();
   if (now - lastDispSlow < 1500) return;
+  if(menu_actual->has_own_screen()) return;
 
   lastDispSlow = now;
 
@@ -449,29 +453,35 @@ void taskDispSlow() {
     writeToRectangle(RED, BLACK, 0, TXT_ERR);
   }
 
-  sprintf(txt, "   %+3.1f V", M5.Axp.GetBatVoltage());
+  sprintf(txt, "U:      %+3.1f V", M5.Axp.GetBatVoltage());
   writeToRectangle(LIGHTGREY, BLACK, 20, txt);
 
-  sprintf(txt, "   %+04.0f mA", M5.Axp.GetBatCurrent());
+  sprintf(txt, "Ibat:  %+04.0f mA", M5.Axp.GetBatCurrent());
   writeToRectangle(LIGHTGREY, BLACK, 40, txt);
 
-  sprintf(txt, "   %+04.0f mA", M5.Axp.GetVinCurrent());
+  sprintf(txt, "Iusb:  %+04.0f mA", M5.Axp.GetVinCurrent());
   writeToRectangle(LIGHTGREY, BLACK, 60, txt);
 
   if (bmp_ok) {
-    sprintf(txt, " %03.1f degC", baro_t);
+    sprintf(txt, "T:      %03.1f C", baro_t);
     writeToRectangle(LIGHTGREY, BLACK, 80, txt);
 
-    sprintf(txt, "%07.2f mBar", baro_p);
+    sprintf(txt, "Pi: %06.1f hPa", baro_p);
     writeToRectangle(LIGHTGREY, BLACK, 100, txt);
 
-    sprintf(txt, " %07.2f m", baro_a);
+    sprintf(txt, "Alt:  %06.1f m", baro_a);
     writeToRectangle(LIGHTGREY, BLACK, 120, txt);
 
-    sprintf(txt, "%07.2f mBar", baro_sealevel1);
+    sprintf(txt, "QNH:  %04d hPa", value_QNH);
     writeToRectangle(LIGHTGREY, BLACK, 140, txt);
-    sprintf(txt, "%07.2f mBar", baro_sealevel2);
-    writeToRectangle(LIGHTGREY, BLACK, 160, txt);
+
+    if(!isnan(requested_altitude)) {
+      sprintf(txt, "SET:   %04.0f ft", requested_altitude);
+      writeToRectangle(GREEN, BLACK, 160, txt);
+    } else {      
+      writeToRectangle(LIGHTGREY, BLACK, 160, "SET:      OFF");
+    
+    }
 
   /*
     if(WiFi.status() != WL_CONNECTED) {
@@ -483,7 +493,7 @@ void taskDispSlow() {
     }
     */
 
-    sprintf(txt, "%04.0f ft", baro_a*3.2808399);
+    sprintf(txt, "%04.0f ft", getAltitudeFt());
     writeToRectangleBig(WHITE, BLACK, 180, txt);
     
     
@@ -495,6 +505,10 @@ void taskDispSlow() {
   }
 
 
+}
+
+float getAltitudeFt() {
+  return baro_a * 3.2808399;
 }
 
 void writeToRectangle(uint32_t color, uint32_t backgroud, word y, const char* text) {
@@ -519,6 +533,23 @@ void writeToRectangleLeft(uint32_t color, uint32_t backgroud, word y, const char
   M5.Lcd.setTextSize(2);
   M5.Lcd.fillRect(0, y, BOX_S_WIDTH, SBOX_HEIGHT, backgroud);
   M5.Lcd.drawRect(0, y, BOX_S_WIDTH, SBOX_HEIGHT, ORANGE);
+  M5.Lcd.setTextColor(color);
+  M5.Lcd.setCursor(0 + 4, y + 3);
+  M5.Lcd.print(text);
+}
+
+void writeToRectangleLeftBig(uint32_t color, uint32_t backgroud, word y, const char* text) {
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.fillRect(0, y, BOX_S_WIDTH, LBOX_HEIGHT, backgroud);
+  M5.Lcd.drawRect(0, y, BOX_S_WIDTH, LBOX_HEIGHT, ORANGE);
+  M5.Lcd.setTextColor(color);
+  M5.Lcd.setCursor(0 + 4, y + 3);
+  M5.Lcd.print(text);
+}
+void writeToRectangleLeftGiant(uint32_t color, uint32_t backgroud, word y, const char* text) {
+  M5.Lcd.setTextSize(18);
+  M5.Lcd.fillRect(0, y, BOX_S_WIDTH, GBOX_HEIGHT, backgroud);
+  M5.Lcd.drawRect(0, y, BOX_S_WIDTH, GBOX_HEIGHT, ORANGE);
   M5.Lcd.setTextColor(color);
   M5.Lcd.setCursor(0 + 4, y + 3);
   M5.Lcd.print(text);
@@ -703,6 +734,7 @@ void encoder_long_push(i2cEncoderMiniLib* obj) {
 
 extern MYMENU_SELECT mm_info;
 extern MYMENU_SELECT mm_set_alt;
+extern MYMENU_SELECT mm_rst_alt;
 extern MYMENU_SELECT mm_set_qnh;
 extern MYMENU_NINP mm_sqnh_1;
 extern MYMENU_NINP mm_sqnh_2;
@@ -711,11 +743,14 @@ extern MYMENU_NINP mm_sqnh_4;
 extern MYMENU_CHECK  mm_sqnh_done;
 
 extern MYMENU_MSG  mm_empty;
+extern MYMENU_MSG  mm_alt_stored;
+extern MYMENU_MSG  mm_alt_canceled;
 
 
 
 MYMENU_SELECT mm_info("main info",NULL, &mm_set_alt,&mm_empty);
-MYMENU_SELECT mm_set_alt("set altitude",&mm_info,&mm_set_qnh,&mm_empty);
+MYMENU_SELECT mm_set_alt("SET ALT ALARM",&mm_info,&mm_rst_alt,&mm_alt_stored);
+MYMENU_SELECT mm_rst_alt("RST ALT ALARM",&mm_set_alt,&mm_set_qnh,&mm_alt_canceled);
 MYMENU_SELECT mm_set_qnh("set QNH",&mm_set_alt,NULL,&mm_sqnh_1);
 
 MYMENU_NINP mm_sqnh_1(1,1000,&mm_sqnh_2,mm_sqnh_show);
@@ -723,17 +758,43 @@ MYMENU_NINP mm_sqnh_2(0,100,&mm_sqnh_3,mm_sqnh_show);
 MYMENU_NINP mm_sqnh_3(1,10,&mm_sqnh_4,mm_sqnh_show);
 MYMENU_NINP mm_sqnh_4(3,1,&mm_info,mm_sqnh_show);
 MYMENU_CHECK  mm_sqnh_done(2000,&mm_info);
+MYMENU_NINP* mm_sqnh_x[] = {&mm_sqnh_1,&mm_sqnh_2,&mm_sqnh_3,&mm_sqnh_4};
 
-MYMENU_MSG  mm_empty("EMPTY SELECTION",500,&mm_info);
+MYMENU_MSG  mm_empty("EMPTY SELECTION",800,&mm_info);
+MYMENU_MSG  mm_alt_stored("ALTITUDE STORED",800,&mm_info);
+MYMENU_MSG  mm_alt_canceled("ALTITUDE ALARM CANCELED",800,&mm_info);
 
 MYMENUELEMENT* menu_actual = &mm_info;
 
+void func_set_alt(void) {
+  requested_altitude = getAltitudeFt(); 
+}
+void func_rst_alt(void) {
+  requested_altitude = NAN; 
+}
+  
+
 void mm_sqnh_show() {
+  M5.Lcd.fillScreen(BLACK);
+  
+  writeToRectangleLeft(LIGHTGREY, BLACK, 40, "Set QNH [hPa]:");   
+
+  //draw selection
+  int left = 0;
+  int top = 60;  
+
+  //draw value  
   char txt[40];
   mm_sqnh_calc();
-  sprintf(txt, "QNH:%04dhPa", value_QNH);
+  sprintf(txt, "%04d", value_QNH);
   bool range_ok = (value_QNH>960) && (value_QNH<1040);
-  writeToRectangleLeft(range_ok?GREEN:RED, BLACK, 40, txt);   
+  writeToRectangleLeftGiant(range_ok?GREEN:RED, BLACK, 60, txt);   
+
+  const int count = sizeof(mm_sqnh_x)/sizeof(mm_sqnh_x[0]);
+  for (int i=0; i<count; i++) {
+    mm_sqnh_x[i]->draw(i, 0, 60, BOX_S_WIDTH, GBOX_HEIGHT, count);
+  }
+
 }
 void mm_sqnh_calc() {
   value_QNH = mm_sqnh_1.getVX() + mm_sqnh_2.getVX() + mm_sqnh_3.getVX() + mm_sqnh_4.getVX() ;
@@ -741,11 +802,13 @@ void mm_sqnh_calc() {
 
 void menu_setup() {
   mm_sqnh_calc();
-  menu_actual->show();
+  mm_set_alt.setDownCallback(func_set_alt);
+  mm_rst_alt.setDownCallback(func_rst_alt);
+  menu_actual->show();  
 }
 
 void task_menu() {
-
+  menu_actual->task();
 }
 
 void menu_go_prev(i2cEncoderMiniLib* obj) {

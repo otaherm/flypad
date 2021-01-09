@@ -12,7 +12,7 @@
   buy me italian pizza someday.
 */
 
-#include "BMP280.h"
+#include "bmp280.h"
 #include <Wire.h>
 #include <stdio.h>
 #include <math.h>
