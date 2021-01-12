@@ -44,16 +44,16 @@ class MYMENU_SELECT: public MYMENUELEMENT {
 
 class MYMENU_NINP: public MYMENUELEMENT {
   public:
-    MYMENU_NINP(const uint8_t def_val, const int level, MYMENUELEMENT* next, void (*const cb_show)(void));
+    MYMENU_NINP(MYMENUELEMENT* next, void (*const cb_show)(void), int value_min, int value_max);
     void go_down() override;
     void go_prev() override;
     void go_next() override;
-    uint8_t value;
-    const int level;
+    int value;
+    const int value_min, value_max;
     void (*const cb_show)(void);
     void show() override;
     int getVX() {
-      return level * value;
+      return value;
     };
     bool has_own_screen() override;
     void draw(int idx, int x, int y, int width, int height, int count);
@@ -61,12 +61,14 @@ class MYMENU_NINP: public MYMENUELEMENT {
 
 class MYMENU_MSG: public MYMENUELEMENT {
   public:
-    MYMENU_MSG(const char* const title, const unsigned long delay_ms, MYMENUELEMENT* next);
+    MYMENU_MSG(const char* const title, const unsigned long delay_ms, void (*const cb_show)(void), MYMENUELEMENT* next);
     const unsigned long delay_ms;
     void go_down() override;
     void go_prev() override;
     bool has_own_screen() override;
     void task() override;
+    void show() override;
+    void (*const cb_show)(void);
 };
 
 class MYMENU_CHECK: public MYMENUELEMENT {

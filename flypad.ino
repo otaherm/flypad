@@ -1,5 +1,6 @@
 #include <i2cEncoderMiniLib.h>
 //#include <i2cNavKey.h>
+#include <Preferences.h>
 
 #include <NTPClient.h>
 #include <WiFi.h>
@@ -14,18 +15,18 @@
 #include "mymenuelement.h"
 #include "flypad.h"
 
-
-//#define P0 1013.25
-//QNH 22.12.2020 LKPR
-#define P0 1010.2
 unsigned int value_QNH = 0;
 float requested_altitude = NAN;
 
 const int EncoderIntPin = G27; /* Definition of the interrupt pin. You can change according to your board */
 i2cEncoderMiniLib Encoder(0x20);
 BMP280 bmp;
+Preferences preferences;
+const char* key_qnh = "QNH";
 
 #define TOUCH_MAX_X 320
+
+const float altitude_tolerance = 200; //altitude cheking tolerance in ft
 
 // Replace with your network credentials
 const char* ssid     = "Nokia8";
@@ -72,6 +73,7 @@ bool bmp_ok = false;
 
 void setup() {
   M5.begin();
+  preferences.begin("flightpad");
   M5.Touch.addHandler(eventDisplay);
   M5.Touch.addHandler(colorButtons, TE_BTNONLY + TE_TOUCH + TE_RELEASE);
   //swipeDown.addHandler(yayWeSwiped);
@@ -113,29 +115,29 @@ void setup() {
   WiFi.disconnect();
 
   doScanWifi = millis() + 100;
-  
+
   /*
-  while (WiFi.status() != WL_CONNECTED) {
+    while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-  }*/
-/*
-    // Print local IP address and start web server
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+    }*/
+  /*
+      // Print local IP address and start web server
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
   */
 
-/*
-// Initialize a NTPClient to get time
-  timeClient.begin();
-  // Set offset time in seconds to adjust for your timezone, for example:
-  // GMT +1 = 3600
-  // GMT +8 = 28800
-  // GMT -1 = -3600
-  // GMT 0 = 0
-  timeClient.setTimeOffset(3600);
+  /*
+    // Initialize a NTPClient to get time
+    timeClient.begin();
+    // Set offset time in seconds to adjust for your timezone, for example:
+    // GMT +1 = 3600
+    // GMT +8 = 28800
+    // GMT -1 = -3600
+    // GMT 0 = 0
+    timeClient.setTimeOffset(3600);
   */
 
   Serial.println("Starting BLE mouse work!");
@@ -149,93 +151,93 @@ void setup() {
 
 
 void WiFiStationEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
-    Serial.print("Wifi event:");
-    Serial.print(event);
-    //Serial.print(", info:");
-    //Serial.println(info);
-    Serial.println();
-    
-     switch (event) {
-        case SYSTEM_EVENT_WIFI_READY: 
-            Serial.println("WiFi interface ready");
-            break;
-        case SYSTEM_EVENT_SCAN_DONE:
-            Serial.println("Completed scan for access points");
-            break;
-        case SYSTEM_EVENT_STA_START:
-            Serial.println("WiFi client started");
-            break;
-        case SYSTEM_EVENT_STA_STOP:
-            Serial.println("WiFi clients stopped");
-            break;
-        case SYSTEM_EVENT_STA_CONNECTED:
-            Serial.println("Connected to access point");
-            break;
-        case SYSTEM_EVENT_STA_DISCONNECTED:
-            Serial.println("Disconnected from WiFi access point");
-            break;
-        case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
-            Serial.println("Authentication mode of access point has changed");
-            break;
-        case SYSTEM_EVENT_STA_GOT_IP:
-            Serial.print("Obtained IP address: ");
-            Serial.println(WiFi.localIP());
-            break;
-        case SYSTEM_EVENT_STA_LOST_IP:
-            Serial.println("Lost IP address and IP address is reset to 0");
-            break;
-        case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
-            Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode");
-            break;
-        case SYSTEM_EVENT_STA_WPS_ER_FAILED:
-            Serial.println("WiFi Protected Setup (WPS): failed in enrollee mode");
-            break;
-        case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
-            Serial.println("WiFi Protected Setup (WPS): timeout in enrollee mode");
-            break;
-        case SYSTEM_EVENT_STA_WPS_ER_PIN:
-            Serial.println("WiFi Protected Setup (WPS): pin code in enrollee mode");
-            break;
-        case SYSTEM_EVENT_AP_START:
-            Serial.println("WiFi access point started");
-            break;
-        case SYSTEM_EVENT_AP_STOP:
-            Serial.println("WiFi access point  stopped");
-            break;
-        case SYSTEM_EVENT_AP_STACONNECTED:
-            Serial.println("Client connected");
-            break;
-        case SYSTEM_EVENT_AP_STADISCONNECTED:
-            Serial.println("Client disconnected");
-            break;
-        case SYSTEM_EVENT_AP_STAIPASSIGNED:
-            Serial.println("Assigned IP address to client");
-            break;
-        case SYSTEM_EVENT_AP_PROBEREQRECVED:
-            Serial.println("Received probe request");
-            break;
-        case SYSTEM_EVENT_GOT_IP6:
-            Serial.println("IPv6 is preferred");
-            break;
-        case SYSTEM_EVENT_ETH_START:
-            Serial.println("Ethernet started");
-            break;
-        case SYSTEM_EVENT_ETH_STOP:
-            Serial.println("Ethernet stopped");
-            break;
-        case SYSTEM_EVENT_ETH_CONNECTED:
-            Serial.println("Ethernet connected");
-            break;
-        case SYSTEM_EVENT_ETH_DISCONNECTED:
-            Serial.println("Ethernet disconnected");
-            break;
-        case SYSTEM_EVENT_ETH_GOT_IP:
-            Serial.println("Obtained IP address");
-            break;
-        default: 
-          Serial.println("Event not found...");
-          break;
-    }
+  Serial.print("Wifi event:");
+  Serial.print(event);
+  //Serial.print(", info:");
+  //Serial.println(info);
+  Serial.println();
+
+  switch (event) {
+    case SYSTEM_EVENT_WIFI_READY:
+      Serial.println("WiFi interface ready");
+      break;
+    case SYSTEM_EVENT_SCAN_DONE:
+      Serial.println("Completed scan for access points");
+      break;
+    case SYSTEM_EVENT_STA_START:
+      Serial.println("WiFi client started");
+      break;
+    case SYSTEM_EVENT_STA_STOP:
+      Serial.println("WiFi clients stopped");
+      break;
+    case SYSTEM_EVENT_STA_CONNECTED:
+      Serial.println("Connected to access point");
+      break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("Disconnected from WiFi access point");
+      break;
+    case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
+      Serial.println("Authentication mode of access point has changed");
+      break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.print("Obtained IP address: ");
+      Serial.println(WiFi.localIP());
+      break;
+    case SYSTEM_EVENT_STA_LOST_IP:
+      Serial.println("Lost IP address and IP address is reset to 0");
+      break;
+    case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
+      Serial.println("WiFi Protected Setup (WPS): succeeded in enrollee mode");
+      break;
+    case SYSTEM_EVENT_STA_WPS_ER_FAILED:
+      Serial.println("WiFi Protected Setup (WPS): failed in enrollee mode");
+      break;
+    case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
+      Serial.println("WiFi Protected Setup (WPS): timeout in enrollee mode");
+      break;
+    case SYSTEM_EVENT_STA_WPS_ER_PIN:
+      Serial.println("WiFi Protected Setup (WPS): pin code in enrollee mode");
+      break;
+    case SYSTEM_EVENT_AP_START:
+      Serial.println("WiFi access point started");
+      break;
+    case SYSTEM_EVENT_AP_STOP:
+      Serial.println("WiFi access point  stopped");
+      break;
+    case SYSTEM_EVENT_AP_STACONNECTED:
+      Serial.println("Client connected");
+      break;
+    case SYSTEM_EVENT_AP_STADISCONNECTED:
+      Serial.println("Client disconnected");
+      break;
+    case SYSTEM_EVENT_AP_STAIPASSIGNED:
+      Serial.println("Assigned IP address to client");
+      break;
+    case SYSTEM_EVENT_AP_PROBEREQRECVED:
+      Serial.println("Received probe request");
+      break;
+    case SYSTEM_EVENT_GOT_IP6:
+      Serial.println("IPv6 is preferred");
+      break;
+    case SYSTEM_EVENT_ETH_START:
+      Serial.println("Ethernet started");
+      break;
+    case SYSTEM_EVENT_ETH_STOP:
+      Serial.println("Ethernet stopped");
+      break;
+    case SYSTEM_EVENT_ETH_CONNECTED:
+      Serial.println("Ethernet connected");
+      break;
+    case SYSTEM_EVENT_ETH_DISCONNECTED:
+      Serial.println("Ethernet disconnected");
+      break;
+    case SYSTEM_EVENT_ETH_GOT_IP:
+      Serial.println("Obtained IP address");
+      break;
+    default:
+      Serial.println("Event not found...");
+      break;
+  }
 }
 
 void loop() {
@@ -262,33 +264,33 @@ void taskWifiScan() {
   int32_t channel;
   bool hidden;
   int scanResult;
-  
-  if(doScanWifi==0) return;
 
-  if(doScanWifi>millis()) return;
+  if (doScanWifi == 0) return;
+
+  if (doScanWifi > millis()) return;
 
   int8_t sc;
 
   sc = WiFi.scanComplete();
-  Serial.printf(PSTR("Starting WiFi scan...%d/n"),sc);  
-  
+  Serial.printf(PSTR("Starting WiFi scan...%d/n"), sc);
+
   scanResult = WiFi.scanNetworks(/*async=*/true, /*hidden=*/true);
   Serial.printf(PSTR("Scan started, result:%d\n"), scanResult);
 
-  
-  while(true) {
+
+  while (true) {
     sc = WiFi.scanComplete();
-    if(sc==-1) {
+    if (sc == -1) {
       Serial.print(F("."));
-      delay(500);  
-    } else if(sc < 0) {
-      Serial.printf(PSTR("Scan error:%d/n"),sc);
+      delay(500);
+    } else if (sc < 0) {
+      Serial.printf(PSTR("Scan error:%d/n"), sc);
       return;
     } else {
-      Serial.printf(PSTR("Scan result:%d/n"),sc);
+      Serial.printf(PSTR("Scan result:%d/n"), sc);
       break;
     }
-  }  
+  }
   scanResult = sc;
 
   if (scanResult == 0) {
@@ -317,13 +319,13 @@ void taskWifiScan() {
     Serial.printf(PSTR("WiFi scan error %d"), scanResult);
   }
 
-  
+
 
   doScanWifi = 0;
 }
 /*
-unsigned long lastRunNtp = 0;
-void taskNtp() {
+  unsigned long lastRunNtp = 0;
+  void taskNtp() {
   unsigned long age = millis() - lastRunNtp;
   if(age<1000) return;
   lastRunNtp = millis();
@@ -335,11 +337,11 @@ void taskNtp() {
   // 2018-05-28T16:00:13Z
   // We need to extract date and time
   formattedDate = timeClient.getFormattedTime();
-  Serial.println("Time: "+formattedDate); 
-  
+  Serial.println("Time: "+formattedDate);
+
     writeToRectangle(LIGHTGREY, BLACK, 200, formattedDate.c_str());
 
-}*/
+  }*/
 
 bool isVibrating = false;
 
@@ -355,9 +357,6 @@ void taskVibrate() {
 unsigned long last_baro = millis();
 double baro_t = -1;
 double baro_p = -1;
-double baro_a = -1;
-double baro_sealevel1 = -1;
-double baro_sealevel2 = -1;
 unsigned long run_baro2 = 0;
 void taskBaro1() {
   unsigned long age = millis() - last_baro;
@@ -370,11 +369,8 @@ void taskBaro1() {
   //char result = bmp.startMeasurment();
   char wait_ms = bmp.startMeasurment();
   if (wait_ms == 0) {
-    baro_a = -1;
     baro_t = -1;
     baro_p = -1;
-    baro_sealevel1 = -1;
-    baro_sealevel2 = -1;
     Serial.println("BMP Error 1.");
     return;
   }
@@ -394,13 +390,46 @@ void taskBaro2() {
     return;
   }
 
-  baro_a = bmp.altitude(baro_p, value_QNH);
-  baro_sealevel1 = bmp.sealevel(baro_p, 350);
-  baro_sealevel2 = bmp.sealevel(baro_p, 202);
   //Serial.print("T = \t");Serial.print(baro_t,2); Serial.print(" degC\t");
   //Serial.print("P = \t");Serial.print(baro_p,2); Serial.print(" mBar\t");
   //Serial.print("A = \t");Serial.print(baro_a,2); Serial.println(" m");
   //display_result(T, P, A);
+
+
+  show_baro();
+}
+
+void show_baro() {
+  char txt[40];
+  uint32_t color1 = WHITE;
+  uint32_t color0 = BLACK;
+  if (!isnan(requested_altitude)) {
+    float diff_alt = getAltitudeFt() - requested_altitude;
+    if (abs(diff_alt) < altitude_tolerance) {
+      color1 = GREEN;
+      color0 = BLACK;
+    } else {
+      color1 = CYAN;
+      color0 = RED;
+    }
+  }
+  sprintf(txt, "%04.0f ft", getAltitudeFt());
+  writeToRectangleBig(color1, color0, 180, txt);
+
+  sprintf(txt, "Alt:  %06.1f m", getAltitudeM());
+  writeToRectangle(LIGHTGREY, BLACK, 120, txt);
+
+  sprintf(txt, "QNH:  %04d hPa", value_QNH);
+  writeToRectangle(LIGHTGREY, BLACK, 140, txt);
+
+  if (!isnan(requested_altitude)) {
+    sprintf(txt, "SET:   %04.0f ft", requested_altitude);
+    writeToRectangle(GREEN, BLACK, 160, txt);
+  } else {
+    writeToRectangle(LIGHTGREY, BLACK, 160, "SET:      OFF");
+
+  }
+
 }
 
 int sum_x = 0;
@@ -426,7 +455,7 @@ void taskMouse() {
 
 const word BOX_LEFT = 254 - 110;
 const word BOX_WIDTH = 64 + 110;
-const word BOX_S_WIDTH = 110+30+36-6;
+const word BOX_S_WIDTH = 110 + 30 + 36 - 6;
 const word SBOX_HEIGHT = 20;
 const word LBOX_HEIGHT = 34;
 const word GBOX_HEIGHT = 60;
@@ -435,7 +464,7 @@ unsigned long lastDispSlow = millis();
 void taskDispSlow() {
   unsigned long now = millis();
   if (now - lastDispSlow < 1500) return;
-  if(menu_actual->has_own_screen()) return;
+  if (menu_actual->has_own_screen()) return;
 
   lastDispSlow = now;
 
@@ -469,35 +498,16 @@ void taskDispSlow() {
     sprintf(txt, "Pi: %06.1f hPa", baro_p);
     writeToRectangle(LIGHTGREY, BLACK, 100, txt);
 
-    sprintf(txt, "Alt:  %06.1f m", baro_a);
-    writeToRectangle(LIGHTGREY, BLACK, 120, txt);
 
-    sprintf(txt, "QNH:  %04d hPa", value_QNH);
-    writeToRectangle(LIGHTGREY, BLACK, 140, txt);
-
-    if(!isnan(requested_altitude)) {
-      sprintf(txt, "SET:   %04.0f ft", requested_altitude);
-      writeToRectangle(GREEN, BLACK, 160, txt);
-    } else {      
-      writeToRectangle(LIGHTGREY, BLACK, 160, "SET:      OFF");
-    
-    }
-
-  /*
-    if(WiFi.status() != WL_CONNECTED) {
-     sprintf(txt, "NOT CONN:");
-     writeToRectangle(RED, BLACK, 180, txt);
-    } else {
-      //writeToRectangle(GREEN, BLACK, 180, String(WiFi.localIP()).c_str());
-      writeToRectangle(GREEN, BLACK, 180, WiFi.localIP().toString().c_str());
-    }
+    /*
+      if(WiFi.status() != WL_CONNECTED) {
+       sprintf(txt, "NOT CONN:");
+       writeToRectangle(RED, BLACK, 180, txt);
+      } else {
+        //writeToRectangle(GREEN, BLACK, 180, String(WiFi.localIP()).c_str());
+        writeToRectangle(GREEN, BLACK, 180, WiFi.localIP().toString().c_str());
+      }
     */
-
-    sprintf(txt, "%04.0f ft", getAltitudeFt());
-    writeToRectangleBig(WHITE, BLACK, 180, txt);
-    
-    
-    
   } else {
     writeToRectangle(RED, BLACK, 80, TXT_MIS);
     writeToRectangle(RED, BLACK, 100, "baro missing");
@@ -507,8 +517,12 @@ void taskDispSlow() {
 
 }
 
-float getAltitudeFt() {
-  return baro_a * 3.2808399;
+float getAltitudeM() {
+  return bmp.altitude(baro_p, value_QNH);
+}
+
+float getAltitudeFt() {  
+  return getAltitudeM() * 3.2808399;
 }
 
 void writeToRectangle(uint32_t color, uint32_t backgroud, word y, const char* text) {
@@ -641,12 +655,12 @@ void buttonPressed(TouchEvent& e) {
 //unsigned long last_encoder_run = 0;
 void task_encoder() {
   if (digitalRead(EncoderIntPin) != LOW) return;
-  
+
   //unsigned long age = millis() - last_encoder_run;
   //if(age<10) return;
 
   //last_encoder_run = millis();
-  Encoder.updateStatus(); 
+  Encoder.updateStatus();
 }
 
 void encoder_setup() {
@@ -665,7 +679,7 @@ void encoder_setup() {
   // Definition of the events
   Encoder.onIncrement = menu_go_prev;
   Encoder.onDecrement = menu_go_next;
-  
+
   Encoder.onChange = encoder_change;
   Encoder.onMax = encoder_max;
   Encoder.onMin = encoder_min;
@@ -680,15 +694,15 @@ void encoder_setup() {
 
 void encoder_show(bool button) {
   char txt[40];
-  
-  int8_t val = Encoder.readCounterByte(); 
+
+  int8_t val = Encoder.readCounterByte();
   uint8_t st = Encoder.readStatus();
-  sprintf(txt, "%+03d st:%02X", val,st);
-  writeToRectangle(LIGHTGREY, button?BLUE:BLACK, 214, txt);
+  sprintf(txt, "%+03d st:%02X", val, st);
+  writeToRectangle(LIGHTGREY, button ? BLUE : BLACK, 214, txt);
 }
 
 //Callback when the CVAL is incremented
-void encoder_change(i2cEncoderMiniLib* obj) {  
+void encoder_change(i2cEncoderMiniLib* obj) {
   encoder_show(false);
 }
 
@@ -709,7 +723,7 @@ void encoder_min(i2cEncoderMiniLib* obj) {
 void encoder_push(i2cEncoderMiniLib* obj) {
   Serial.println("Encoder is pushed!");
   encoder_show(true);
-  menu_actual->go_down();  
+  menu_actual->go_down();
 }
 
 //Callback when the encoder is released
@@ -736,11 +750,12 @@ extern MYMENU_SELECT mm_info;
 extern MYMENU_SELECT mm_set_alt;
 extern MYMENU_SELECT mm_rst_alt;
 extern MYMENU_SELECT mm_set_qnh;
-extern MYMENU_NINP mm_sqnh_1;
-extern MYMENU_NINP mm_sqnh_2;
-extern MYMENU_NINP mm_sqnh_3;
-extern MYMENU_NINP mm_sqnh_4;
-extern MYMENU_CHECK  mm_sqnh_done;
+extern MYMENU_NINP mm_sqnh;
+//extern MYMENU_NINP mm_sqnh_1;
+//extern MYMENU_NINP mm_sqnh_2;
+//extern MYMENU_NINP mm_sqnh_3;
+//extern MYMENU_NINP mm_sqnh_4;
+extern MYMENU_MSG  mm_qnh_done;
 
 extern MYMENU_MSG  mm_empty;
 extern MYMENU_MSG  mm_alt_stored;
@@ -748,63 +763,69 @@ extern MYMENU_MSG  mm_alt_canceled;
 
 
 
-MYMENU_SELECT mm_info("main info",NULL, &mm_set_alt,&mm_empty);
-MYMENU_SELECT mm_set_alt("SET ALT ALARM",&mm_info,&mm_rst_alt,&mm_alt_stored);
-MYMENU_SELECT mm_rst_alt("RST ALT ALARM",&mm_set_alt,&mm_set_qnh,&mm_alt_canceled);
-MYMENU_SELECT mm_set_qnh("set QNH",&mm_set_alt,NULL,&mm_sqnh_1);
+MYMENU_SELECT mm_info("main info", NULL, &mm_set_alt, &mm_empty);
+MYMENU_SELECT mm_set_alt("SET ALT ALARM", &mm_info, &mm_rst_alt, &mm_alt_stored);
+MYMENU_SELECT mm_rst_alt("RST ALT ALARM", &mm_set_alt, &mm_set_qnh, &mm_alt_canceled);
+MYMENU_SELECT mm_set_qnh("set QNH", &mm_set_alt, NULL, &mm_sqnh);
 
-MYMENU_NINP mm_sqnh_1(1,1000,&mm_sqnh_2,mm_sqnh_show);
-MYMENU_NINP mm_sqnh_2(0,100,&mm_sqnh_3,mm_sqnh_show);
-MYMENU_NINP mm_sqnh_3(1,10,&mm_sqnh_4,mm_sqnh_show);
-MYMENU_NINP mm_sqnh_4(3,1,&mm_info,mm_sqnh_show);
-MYMENU_CHECK  mm_sqnh_done(2000,&mm_info);
-MYMENU_NINP* mm_sqnh_x[] = {&mm_sqnh_1,&mm_sqnh_2,&mm_sqnh_3,&mm_sqnh_4};
+MYMENU_NINP mm_sqnh(&mm_qnh_done, mm_sqnh_show, 960, 1080);
 
-MYMENU_MSG  mm_empty("EMPTY SELECTION",800,&mm_info);
-MYMENU_MSG  mm_alt_stored("ALTITUDE STORED",800,&mm_info);
-MYMENU_MSG  mm_alt_canceled("ALTITUDE ALARM CANCELED",800,&mm_info);
+/*MYMENU_NINP mm_sqnh_1(1,1000,&mm_sqnh_2,mm_sqnh_show);
+  MYMENU_NINP mm_sqnh_2(0,100,&mm_sqnh_3,mm_sqnh_show);
+  MYMENU_NINP mm_sqnh_3(1,10,&mm_sqnh_4,mm_sqnh_show);
+  MYMENU_NINP mm_sqnh_4(3,1,&mm_info,mm_sqnh_show);
+*/
+//MYMENU_CHECK  mm_sqnh_done(2000, &mm_info);
+//MYMENU_NINP* mm_sqnh_x[] = {&mm_sqnh_1,&mm_sqnh_2,&mm_sqnh_3,&mm_sqnh_4};
+
+MYMENU_MSG  mm_qnh_done("QNH STORED", 800, mm_qnh_store, &mm_info);
+MYMENU_MSG  mm_empty("EMPTY SELECTION", 800, NULL, &mm_info);
+MYMENU_MSG  mm_alt_stored("ALTITUDE STORED", 800, NULL, &mm_info);
+MYMENU_MSG  mm_alt_canceled("ALTITUDE ALARM CANCELED", 800, NULL, &mm_info);
 
 MYMENUELEMENT* menu_actual = &mm_info;
 
 void func_set_alt(void) {
-  requested_altitude = getAltitudeFt(); 
+  requested_altitude = getAltitudeFt();
 }
 void func_rst_alt(void) {
-  requested_altitude = NAN; 
+  requested_altitude = NAN;
 }
-  
+
 
 void mm_sqnh_show() {
   M5.Lcd.fillScreen(BLACK);
-  
-  writeToRectangleLeft(LIGHTGREY, BLACK, 40, "Set QNH [hPa]:");   
+
+  writeToRectangleLeft(LIGHTGREY, BLACK, 40, "Set QNH [hPa]:");
 
   //draw selection
   int left = 0;
-  int top = 60;  
+  int top = 60;
 
-  //draw value  
+  //draw value
   char txt[40];
   mm_sqnh_calc();
   sprintf(txt, "%04d", value_QNH);
-  bool range_ok = (value_QNH>960) && (value_QNH<1040);
-  writeToRectangleLeftGiant(range_ok?GREEN:RED, BLACK, 60, txt);   
+  bool range_ok = (value_QNH > 960) && (value_QNH < 1040);
+  writeToRectangleLeftGiant(range_ok ? GREEN : RED, BLACK, 60, txt);
 
-  const int count = sizeof(mm_sqnh_x)/sizeof(mm_sqnh_x[0]);
-  for (int i=0; i<count; i++) {
+  /*const int count = sizeof(mm_sqnh_x)/sizeof(mm_sqnh_x[0]);
+    for (int i=0; i<count; i++) {
     mm_sqnh_x[i]->draw(i, 0, 60, BOX_S_WIDTH, GBOX_HEIGHT, count);
-  }
-
+    }*/
+  show_baro();  
 }
 void mm_sqnh_calc() {
-  value_QNH = mm_sqnh_1.getVX() + mm_sqnh_2.getVX() + mm_sqnh_3.getVX() + mm_sqnh_4.getVX() ;
+  //value_QNH = mm_sqnh_1.getVX() + mm_sqnh_2.getVX() + mm_sqnh_3.getVX() + mm_sqnh_4.getVX() ;
+  value_QNH = mm_sqnh.getVX();
 }
 
 void menu_setup() {
+  mm_sqnh.value = preferences.getInt(key_qnh);
   mm_sqnh_calc();
   mm_set_alt.setDownCallback(func_set_alt);
   mm_rst_alt.setDownCallback(func_rst_alt);
-  menu_actual->show();  
+  menu_actual->show();
 }
 
 void task_menu() {
@@ -822,4 +843,8 @@ void menu_go_next(i2cEncoderMiniLib* obj) {
 void menu_go_start(i2cEncoderMiniLib* obj) {
   menu_actual = &mm_info;
   menu_actual->show();
+}
+
+void mm_qnh_store() {
+  preferences.putInt(key_qnh,mm_sqnh.value);
 }
