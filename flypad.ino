@@ -1,3 +1,7 @@
+#include <Adafruit_BMP3XX.h>
+#include <bmp3.h>
+#include <bmp3_defs.h>
+
 #include <i2cEncoderMiniLib.h>
 //#include <i2cNavKey.h>
 #include <Preferences.h>
@@ -14,13 +18,17 @@
 #include "mymenu.h"
 #include "mymenuelement.h"
 #include "flypad.h"
+#include <SPI.h>
+#include <SD.h>
 
 unsigned int value_QNH = 0;
 float requested_altitude = NAN;
 
 const int EncoderIntPin = G27; /* Definition of the interrupt pin. You can change according to your board */
 i2cEncoderMiniLib Encoder(0x20);
-BMP280 bmp;
+//BMP280 bmp;
+Adafruit_BMP3XX bmp;
+
 Preferences preferences;
 const char* key_qnh = "QNH";
 
@@ -79,10 +87,15 @@ void setup() {
   //swipeDown.addHandler(yayWeSwiped);
   //rt.addHandler(dblTapped, TE_DBLTAP);
 
-  if (bmp_ok = bmp.begin()) {
+  //if (bmp_ok = bmp.begin()) {
+  if (bmp_ok = bmp.begin_I2C()) {
     Serial.println("BMP init success!");
-    bmp.setOversampling(16);
+    //bmp.setOversampling(16);
     //M5.Lcd.drawString("BPS Example", 90, 0, 4);
+    bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
+    bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
+    bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
+    bmp.setOutputDataRate(BMP3_ODR_50_HZ);
   } else {
     Serial.println("BMP init failed!");
   }
@@ -145,6 +158,9 @@ void setup() {
 
   menu_setup();
 
+
+  //listDir(SD, "/", 0);
+  readFile(SD, "/flightpad.conf");
 
 }
 
@@ -367,7 +383,7 @@ void taskBaro1() {
   if (!bmp_ok) return;
 
   //char result = bmp.startMeasurment();
-  char wait_ms = bmp.startMeasurment();
+  /*char wait_ms = bmp.startMeasurment();
   if (wait_ms == 0) {
     baro_t = -1;
     baro_p = -1;
@@ -375,7 +391,27 @@ void taskBaro1() {
     return;
   }
 
-  run_baro2 = millis() + wait_ms;
+  run_baro2 = millis() + wait_ms;*/
+  unsigned long tst = millis();
+   if (!bmp.performReading()) {
+    Serial.println("Failed to perform reading :(");
+    return;
+  }
+  unsigned long ten = millis();
+  Serial.print("Temperature = ");
+  Serial.print(bmp.temperature);
+  Serial.println(" *C");
+  baro_t = bmp.temperature;
+ 
+  Serial.print("Pressure = ");
+  Serial.print(bmp.pressure / 100.0);
+  Serial.println(" hPa");
+  baro_p = bmp.pressure / 100;
+  //Serial.print("Approx. Altitude = ");
+  //Serial.print(bmp.readAltitude(SEALEVELPRESSURE_HPA));
+  //Serial.println(" m");
+  Serial.printf("Reading took %ld ms\r\n",(ten-tst));
+  show_baro();
 }
 
 void taskBaro2() {
@@ -384,7 +420,7 @@ void taskBaro2() {
 
   run_baro2 = 0;
 
-  char result = bmp.getTemperatureAndPressure(baro_t, baro_p);
+/*  char result = bmp.getTemperatureAndPressure(baro_t, baro_p);
   if (result == 0) {
     Serial.println("BMP Error 2.");
     return;
@@ -396,7 +432,7 @@ void taskBaro2() {
   //display_result(T, P, A);
 
 
-  show_baro();
+  show_baro();*/
 }
 
 void show_baro() {
@@ -518,10 +554,11 @@ void taskDispSlow() {
 }
 
 float getAltitudeM() {
-  return bmp.altitude(baro_p, value_QNH);
+  return bmp.readAltitude(value_QNH);
+  //return bmp.altitude(baro_p, value_QNH);
 }
 
-float getAltitudeFt() {  
+float getAltitudeFt() {
   return getAltitudeM() * 3.2808399;
 }
 
@@ -813,7 +850,7 @@ void mm_sqnh_show() {
     for (int i=0; i<count; i++) {
     mm_sqnh_x[i]->draw(i, 0, 60, BOX_S_WIDTH, GBOX_HEIGHT, count);
     }*/
-  show_baro();  
+  show_baro();
 }
 void mm_sqnh_calc() {
   //value_QNH = mm_sqnh_1.getVX() + mm_sqnh_2.getVX() + mm_sqnh_3.getVX() + mm_sqnh_4.getVX() ;
@@ -846,5 +883,63 @@ void menu_go_start(i2cEncoderMiniLib* obj) {
 }
 
 void mm_qnh_store() {
-  preferences.putInt(key_qnh,mm_sqnh.value);
+  preferences.putInt(key_qnh, mm_sqnh.value);
 }
+
+
+void listDir(fs::FS &fs, const char * dirname, uint8_t levels) {
+  Serial.printf("Listing directory: %s\n", dirname);
+
+  File root = fs.open(dirname);
+  if (!root) {
+    Serial.println("Failed to open directory");
+    return;
+  }
+  if (!root.isDirectory()) {
+    Serial.println("Not a directory");
+    return;
+  }
+
+  File file = root.openNextFile();
+  while (file) {
+    if (file.isDirectory()) {
+      Serial.print("  DIR : ");
+      Serial.println(file.name());
+      if (levels) {
+        listDir(fs, file.name(), levels - 1);
+      }
+    } else {
+      Serial.print("  FILE: ");
+      Serial.print(file.name());
+      Serial.print("  SIZE: ");
+      Serial.println(file.size());
+    }
+    file = root.openNextFile();
+  }
+}
+
+void readFile(fs::FS &fs, const char * path) {
+  Serial.printf("Reading file: %s\n", path);
+  //    M5.Lcd.printf("Reading file: %s\n", path);
+
+  File file = fs.open(path);
+  if (!file) {
+    Serial.println("Failed to open file for reading");
+    //        M5.Lcd.println("Failed to open file for reading");
+    return;
+  }
+
+  Serial.print("Read from file by lines: ");
+  //    M5.Lcd.print("Read from file: ");
+  String buffer;
+  while (file.available()) {
+    buffer = file.readStringUntil('\n');
+    Serial.println(buffer);
+    //int ch = file.read();
+    //Serial.write(ch);
+    //        M5.Lcd.write(ch);
+  }
+  file.close();
+}
+
+//void parseConfigLine()
